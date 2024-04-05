@@ -2,8 +2,6 @@ use std::*;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use std::cmp::*;
-use std::process::Command;
-use std::thread::Thread;
 
 #[derive(Component)]
 pub struct PLAYER{
