@@ -2,33 +2,43 @@ use std::*;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use std::cmp::*;
+use std::process::Command;
 use std::thread::Thread;
 
 #[derive(Component)]
-pub struct PLAYER;
-
+pub struct PLAYER{
+    playerspeed:f32,
+}
 #[derive(Component)]
 pub struct BRICK;
+
+
+
 
 
 #[derive(Component)]
 pub struct BALL {
     dir: Vec3,
+    speed:f32,
+
+}
+#[derive(Component)]
+pub struct STATES {
+    bricksSpawn:bool,
+    bricksLeft:u8,
 }
 
-pub static mut ballSpawn: bool = true;
 //tue
-pub static mut bricksSpawn: bool = true; //true
 
-pub static mut bricksLeft: u8 = 0; // 0
 
-pub static mut playerspeed: f32 = 600.0;// 600.0
+
+
+
 
 pub const playerSizeX: f32 = 129.0; // 129.30
 
 pub const playerSizeY: f32 = 53.0; // 53.0
 
-pub static mut ballSpeed: f32 = 1000.0; // 450.0
 
 pub const ballSize: f32 = 35.0; // 35.0
 
@@ -44,7 +54,7 @@ pub const kanVerliezen: bool = false;
 pub fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .add_systems(Startup, (spawnPeddel, spawnCamera, spawnBall, ))
+        .add_systems(Startup, (spawnPeddel, spawnCamera, spawnBall,spawnStatus ))
         .add_systems(Update, (movePlayer, confinePlayerMovement, moveBall, confineBallMovement, ballColitionMetPlayer, briksDisapear, winOrLose, win, spawnBriks, ))
         .run();
 }
@@ -60,27 +70,18 @@ pub fn spawnPeddel(
         texture: assetServer.load("sprites/button_blue.png"),
         transform: Transform::from_xyz(0.0, window.height() / peddelSpace * -1.0, 0.0),
         ..default()
-    }, PLAYER {},
+    }, PLAYER {playerspeed:600.0,},
                     AudioBundle {
                         source: assetServer.load("sounds/ethereal-vistas-191254.ogg"),
                         ..default()
                     },
                     MyMusic,
     ));
-    /*commands.spawn(TextBundle::from_section(
-
-        TextSection::new(
-            "score: ",
-            TextStyle{
-                font_size: 60.0,
-                ..default()
-            }
-
-        ),
-
-    )
-
-    );*/
+}
+pub fn spawnStatus(
+    mut commands: Commands,
+){
+    commands.spawn(STATES{bricksSpawn:true,bricksLeft:0});
 }
 
 pub fn spawnCamera(
@@ -102,22 +103,23 @@ pub fn spawnBall(
         },
         ..default()
     },
-                    BALL { dir: Vec3::new(1.0, 1.0, 0.0) }));
+                //  speed = 450.0
+                    BALL { dir: Vec3::new(1.0, 1.0, 0.0),speed: 450.0 }));
 }
 
 pub fn spawnBriks(
     mut balltransform: Query<&mut Transform,With<BALL>>,
     mut commands: Commands,
     assetServer: Res<AssetServer>,
+    mut statusQ: Query<&mut STATES>
 ) {
-    unsafe {
-        if bricksSpawn {
-            let mut transform = balltransform.single_mut();
-            
+    let mut status = statusQ.single_mut();
+
+        if status.bricksSpawn {
             let Xreset: f32 = -760.0;
             let mut x: f32 = Xreset;
             let mut y: f32 = 150.0;
-            for i in 1..6 {
+            for i in 1..4 {
                 for v in 1..9 {
                     commands.spawn((SpriteBundle {
                         texture: assetServer.load("sprites/block_square.png"),
@@ -130,18 +132,18 @@ pub fn spawnBriks(
                         ..default()
                     }, BRICK {}
                     ));
+                    status.bricksLeft += 1;
                     x += brikSizeX + 20.0;
-                    unsafe { bricksLeft += 1; }
+
                 }
                 x = Xreset;
                 y += brikSizeY + 20.0;
             }
-            bricksSpawn = false
+            status.bricksSpawn = false
         }
-    }
-    unsafe { println!("{}", bricksLeft) }
-}
 
+     println!("{}", status.bricksSpawn)
+}
 
 fn briksDisapear(
     assetServer: Res<AssetServer>,
@@ -149,7 +151,11 @@ fn briksDisapear(
     mut bricks: Query<(Entity, &Transform), With<BRICK>>,
     ballT: Query<&Transform, With<BALL>>,
     mut ballQ: Query<&mut BALL>,
+    mut statusQ: Query<&mut STATES>,
+mut playerQ:Query<&mut PLAYER>,
 ) {
+    let mut status = &mut statusQ.single_mut();
+    let mut player = &mut playerQ.single_mut();
     for brick in bricks.iter() {
         let balltransform = ballT.single();
         let bricktransform = brick.1.translation;
@@ -164,17 +170,18 @@ fn briksDisapear(
         let ballX = ballP.x;
         let mut ball = ballQ.single_mut();
 
+
         let Ycolition = (halfBrickSizeY + halfBallSize) > ((ballY - brickY).abs());
         let Xcolition = (halfBallSize + halfBrickSizeX) > ((ballX - brickX).abs());
         if Ycolition && Xcolition {
             commands.entity(brick.0).despawn();
             ball.dir = Vec3::new(ball.dir.x, -ball.dir.y, ball.dir.z);
-            unsafe {
-                ballSpeed += 25.0;
-                playerspeed += 35.0;
-                bricksLeft = bricksLeft - 1;
-                println!("{}", bricksLeft)
-            }
+
+                ball.speed += 25.0;
+                player.playerspeed += 35.0;
+                status.bricksLeft = status.bricksLeft - 1;
+                println!("{}", status.bricksLeft);
+
             commands.spawn((
                 AudioBundle {
                     source: assetServer.load("sounds/impactGlass_light_003.ogg"),
@@ -186,12 +193,15 @@ fn briksDisapear(
     }
 }
 
-fn win() {
-    unsafe {
-        if bricksLeft == 0 {
-            bricksSpawn = true;
+fn win(
+    mut statusQ: Query<&mut STATES>,
+) {
+    let mut status = statusQ.single_mut();
+
+        if status.bricksLeft == 0 {
+            status.bricksSpawn = true;
         }
-    }
+
 }
 
 #[derive(Component)]
@@ -199,10 +209,12 @@ struct MyMusic;
 
 pub fn movePlayer(
     input: Res<ButtonInput<KeyCode>>,
-    mut player: Query<&mut Transform, With<PLAYER>>,
+    mut playerT: Query<&mut Transform, With<PLAYER>>,
     time: Res<Time>,
+    mut playerQ:Query<&mut PLAYER>,
 ) {
-    if let Ok(mut transform) = player.get_single_mut() {
+    let mut player =  playerQ.single_mut();
+    if let Ok(mut transform) = playerT.get_single_mut() {
         //dir stands for direction
         let mut dir = Vec3::ZERO;
         //checking for input
@@ -215,7 +227,7 @@ pub fn movePlayer(
         if dir.length() > 0.0 {
             dir = dir.normalize();
         }
-        unsafe { transform.translation += dir * playerspeed * time.delta_seconds(); }
+        transform.translation += dir * player.playerspeed  * time.delta_seconds();
     }
 }
 
@@ -246,12 +258,13 @@ pub fn moveBall(
     ballQuery: Query<&BALL>,
 ) {
     if let Ok(mut transform) = balltransform.get_single_mut() {
+
         let ball = ballQuery.single();
         let mut dir = ball.dir;
         if dir.length() > 0.0 {
             dir = dir.normalize();
         }
-        unsafe { transform.translation += dir * ballSpeed * time.delta_seconds(); }
+         transform.translation += dir * ball.speed * time.delta_seconds();
     }
 }
 
